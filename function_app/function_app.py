@@ -19,13 +19,17 @@ from azure.identity import DefaultAzureCredential
 
 load_dotenv()
 
+# Set root logger and Azure SDK logs to WARNING
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s:%(levelname)s:%(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",)
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logging.getLogger("azure").setLevel(logging.WARNING)
 
-_logger = logging.getLogger("azure")
-_logger.setLevel(logging.WARNING)
+# Dedicated logger for your app actions
+app_logger = logging.getLogger("myapp")
+app_logger.setLevel(logging.INFO)
 
 speech_endpoint = os.getenv("SPEECH_ENDPOINT")
 if not speech_endpoint:
@@ -164,10 +168,9 @@ def is_blob_ready_sync(blob_url, max_retries=6, delay=5):
 )
 @app.durable_client_input(client_name="client")
 async def audio_blob_trigger(inputblob2: func.InputStream, client: df.DurableOrchestrationClient):
-    logging.warning("🔥 Blob trigger fired!")
-    
+    app_logger.info("Blob trigger fired.")
     blob_name = inputblob2.name.replace("audio-in/", "")
-    logging.warning(f"Blob name: {blob_name}")
+    app_logger.info(f"Blob name: {blob_name}")
 
     try:
         await asyncio.sleep(7)  # Simulate some processing delay
@@ -177,11 +180,11 @@ async def audio_blob_trigger(inputblob2: func.InputStream, client: df.DurableOrc
             raise ValueError("Missing STORAGE_ACCOUNT_NAME environment variable")
 
         content_url = f"https://{storage_account_name}.blob.core.windows.net/audio-in/{blob_name}"
-        logging.warning(f"✅ Recordings URL: {content_url}")
+        app_logger.info(f"Recordings URL: {content_url}")
 
-        # 🔍 NEW: Wait until blob is actually ready before triggering orchestration
+        # Wait until blob is actually ready before triggering orchestration
         if not await wait_for_blob_ready_async(content_url):
-            logging.error("❌ Blob not ready after retries. Skipping orchestration.")
+            logging.error("Blob not ready after retries. Skipping orchestration.")
             return
 
         input_payload = {
@@ -190,11 +193,11 @@ async def audio_blob_trigger(inputblob2: func.InputStream, client: df.DurableOrc
         }
 
         instance_id = await client.start_new("audio_processing_orchestrator", None, input_payload)
-        logging.info(f"🎯 Orchestration started: {instance_id}")
+        app_logger.info(f"Orchestration started: {instance_id}")
 
     except Exception as e:
-        logging.error(f"❌ Error in blob trigger: {e}")
-        logging.error(traceback.format_exc())
+        logging.error(f"Error in blob trigger: {e}")
+        logging.debug(traceback.format_exc())
 
 
 
@@ -202,38 +205,39 @@ async def audio_blob_trigger(inputblob2: func.InputStream, client: df.DurableOrc
 def audio_processing_orchestrator(context):
     try:
         input_data = context.get_input()
-        logging.info(f"[Orchestrator] Started with input: {input_data}")
+        app_logger.info(f"[Orchestrator] Started with input: {input_data}")
         content_url = input_data.get("content_url")
         blob_name = input_data.get("blob_name")
 
-        logging.info("[Orchestrator] Calling start_batch_activity")
+        app_logger.info("[Orchestrator] Calling start_batch_activity")
         batch_info = yield context.call_activity("start_batch_activity", {
             "content_url": content_url,
             "blob_name": blob_name
         })
-        logging.info(f"[Orchestrator] batch_info: {batch_info}")
+        app_logger.info(f"[Orchestrator] batch_info: {batch_info}")
 
-        logging.info("[Orchestrator] Calling poll_batch_activity")
+        app_logger.info("[Orchestrator] Calling poll_batch_activity")
         result_data = yield context.call_activity("poll_batch_activity", batch_info)
-        logging.info(f"[Orchestrator] result_data from poll_batch_activity: {result_data}")
+        app_logger.info(f"[Orchestrator] result_data from poll_batch_activity: {result_data}")
 
         if not result_data or "error" in result_data:
-            logging.error(f"❌ Error in batch processing: {result_data.get('error') if result_data else 'No result_data'}")
+            logging.error(f"Error in batch processing: {result_data.get('error') if result_data else 'No result_data'}")
             return {"error": result_data.get("error") if result_data else "No result_data"}
 
-        logging.info("[Orchestrator] Calling write_output_activity")
+        app_logger.info("[Orchestrator] Calling write_output_activity")
         write_result = yield context.call_activity("write_output_activity", result_data)
-        logging.info(f"[Orchestrator] write_output_activity result: {write_result}")
+        app_logger.info(f"[Orchestrator] write_output_activity result: {write_result}")
 
     except Exception as e:
-        logging.error(f"❌ Orchestration failed: {e}")
+        logging.error(f"Orchestration failed: {e}")
+        logging.debug(traceback.format_exc())
         return {"error": str(e)}
 
 
 
 @app.activity_trigger(input_name="input_data")
 def start_batch_activity(input_data):
-    logging.warning(f"[Activity] Received input: {input_data}")
+    app_logger.info(f"[Activity] Received input: {input_data}")
     content_url = input_data["content_url"]
     blob_name = input_data["blob_name"]
 
@@ -248,7 +252,7 @@ def start_batch_activity(input_data):
         raise Exception(f"Blob {blob_name} not ready after retries. Aborting transcription.")
 
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
-    logging.warning(f"Token obtained for: {token.token[:20]}...")
+    logging.debug(f"Token obtained for: {token.token[:20]}...")
 
     transcription_url = f"{speech_endpoint}/speechtotext/v3.1/transcriptions"
     payload = {
@@ -276,16 +280,16 @@ def start_batch_activity(input_data):
         raise Exception("Batch transcription start failed")
 
     transcription_location = response.headers["Location"]
-    logging.warning(f"[Activity] Transcription started: {transcription_location}")
+    app_logger.info(f"[Activity] Transcription started: {transcription_location}")
     result = {"status_url": transcription_location, "blob_name": blob_name}
-    logging.warning(f"[Activity] Returning from start_batch_activity: {result}")
+    logging.debug(f"[Activity] Returning from start_batch_activity: {result}")
     return result
 
 
 
 @app.activity_trigger(input_name="batch_info")
 def poll_batch_activity(batch_info):
-    logging.warning(f"[Activity] Polling real batch job: {batch_info}")
+    app_logger.info(f"[Activity] Polling real batch job: {batch_info}")
     try:
         credential = DefaultAzureCredential()
         token = credential.get_token("https://cognitiveservices.azure.com/.default").token
@@ -297,31 +301,31 @@ def poll_batch_activity(batch_info):
         for attempt in range(30):
             response = requests.get(status_url, headers=headers)
             if response.status_code != 200:
-                logging.error(f"❌ Polling failed: {response.status_code} - {response.text}")
+                logging.error(f"Polling failed: {response.status_code} - {response.text}")
                 raise Exception(f"Polling failed: {response.status_code} - {response.text}")
 
             data = response.json()
             status = data.get("status")
-            logging.info(f"[Polling Attempt {attempt + 1}] Status: {status}")
+            app_logger.info(f"[Polling Attempt {attempt + 1}] Status: {status}")
 
             if status == "Succeeded":
                 transcript_url = data.get("resultsUrls", {}).get("transcription")
 
                 if not transcript_url:
-                    logging.warning("⚠️ No 'transcription' in resultsUrls. Trying files fallback...")
+                    logging.debug("No 'transcription' in resultsUrls. Trying files fallback...")
                     files_url = data.get("links", {}).get("files")
                     if not files_url:
                         raise Exception("No fallback 'files' link provided by API.")
 
-                    logging.info(f"🔍 Fetching file list from: {files_url}")
+                    logging.debug(f"Fetching file list from: {files_url}")
                     files_response = requests.get(files_url, headers=headers)
                     files_response.raise_for_status()
                     files = files_response.json().get("values", [])
 
-                    logging.info(f"🗂️ Available files: {[f.get('name') for f in files]}")
+                    logging.debug(f"Available files: {[f.get('name') for f in files]}")
                     transcription_file = next((f for f in files if f.get("kind") == "Transcription"), None)
                     if not transcription_file:
-                        logging.warning("⏳ Transcription file not ready. Retrying...")
+                        logging.debug("Transcription file not ready. Retrying...")
                         time.sleep(15)
                         continue
 
@@ -329,7 +333,7 @@ def poll_batch_activity(batch_info):
                     if not transcript_url:
                         raise Exception("Transcription file found but missing 'contentUrl'.")
 
-                logging.info(f"📥 Fetching transcript JSON from: {transcript_url}")
+                app_logger.info(f"Fetching transcript JSON from: {transcript_url}")
                 result_response = requests.get(transcript_url)
                 result_response.raise_for_status()
                 result_json = result_response.json()
@@ -355,34 +359,32 @@ def poll_batch_activity(batch_info):
                     },
                     "blob_name": blob_name
                 }
-                logging.info(f"[Activity] poll_batch_activity returning: {result}")
+                app_logger.info(f"[Activity] poll_batch_activity returning: {result}")
                 return result
 
             elif status in ["Failed", "Rejected"]:
-                logging.error(f"❌ Transcription failed with response: {json.dumps(data, indent=2)}")
+                logging.error(f"Transcription failed with response: {json.dumps(data, indent=2)}")
                 raise Exception(f"Transcription failed: {json.dumps(data)}")
 
             time.sleep(30)
-            logging.info(f"⏳ Waiting for 30 seconds before next polling attempt...")
+            logging.debug("Waiting for 30 seconds before next polling attempt...")
 
-        logging.error("❌ Polling timed out after maximum attempts.")
+        logging.error("Polling timed out after maximum attempts.")
         return {"error": "Polling timed out", "blob_name": blob_name}
     except Exception as e:
         logging.error(f"[Activity] Exception in poll_batch_activity: {e}")
-        logging.error(traceback.format_exc())
+        logging.debug(traceback.format_exc())
         return {"error": str(e), "blob_name": batch_info.get("blob_name")}
 
 from azure.core.exceptions import ClientAuthenticationError, ResourceExistsError, HttpResponseError
 
 @app.activity_trigger(input_name="result_data")
 def write_output_activity(result_data):
-    logging.info(f"[Activity] Writing result to blob: {result_data}")
     try:
         credential = DefaultAzureCredential()
         storage_account_name = os.getenv("STORAGE_ACCOUNT_NAME")
         if not storage_account_name:
             raise ValueError("Missing STORAGE_ACCOUNT_NAME")
-        # Use only the sync BlobServiceClient here
         from azure.storage.blob import BlobServiceClient as SyncBlobServiceClient
         blob_service_client = SyncBlobServiceClient(
             account_url=f"https://{storage_account_name}.blob.core.windows.net",
@@ -393,23 +395,21 @@ def write_output_activity(result_data):
         output_container = blob_service_client.get_container_client(container_name)
         output_blob = output_container.get_blob_client(blob_name)
         blob_url = output_blob.url
-        logging.info(f"[Activity] Using storage account: {storage_account_name}")
-        logging.info(f"[Activity] AzureWebJobsStorage: {os.getenv('AzureWebJobsStorage')}")
-        logging.info(f"[Activity] Full blob URL: {blob_url}")
-        try:
-            logging.info(f"[Activity] Azure identity: {credential.__class__.__name__}")
-        except Exception:
-            pass
+
+        # Only log essential info at INFO level
+        app_logger.info(f"[Activity] Writing transcript to: {container_name}/{blob_name}")
+
+        # Lower verbosity for identity and env details
+        logging.debug(f"[Activity] Using storage account: {storage_account_name}")
+        logging.debug(f"[Activity] AzureWebJobsStorage: {os.getenv('AzureWebJobsStorage')}")
+        logging.debug(f"[Activity] Full blob URL: {blob_url}")
+        logging.debug(f"[Activity] Azure identity: {credential.__class__.__name__}")
+
         content = json.dumps(result_data["result"], indent=2)
         try:
             output_blob.upload_blob(content, overwrite=True)
             if output_blob.exists():
-                blob_names = []
-                for b in output_container.list_blobs():
-                    blob_names.append(b.name)
-                logging.info(f"[Activity] Output written to: {container_name}/{blob_name}")
-                logging.info(f"[Activity] Verified blob exists: {blob_url}")
-                logging.info(f"[Activity] Blobs currently in {container_name}: {blob_names}")
+                app_logger.info(f"[Activity] Output written and verified at: {blob_url}")
                 return "OK"
             else:
                 logging.error(f"[Activity] Blob upload reported success but blob does NOT exist: {blob_url}")
@@ -427,5 +427,6 @@ def write_output_activity(result_data):
             return "ERROR"
     except Exception as e:
         logging.error(f"[Activity] Failed to write output: {e}")
+        logging.debug(traceback.format_exc())
         return "ERROR"
 
