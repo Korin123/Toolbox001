@@ -1830,6 +1830,8 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       // Ensure AUDIOMONO_ENDPOINT is set for the function app:
       AUDIOMONO_ENDPOINT: 'https://audiomono-${resourceToken}.azurewebsites.net'
       VIDEOPROCESS_ENDPOINT: videoProcessEndpoint
+      VIDEO_INDEXER_ACCOUNT: videoIndexer.properties.accountId
+
     })
   }
   dependsOn: [
@@ -2281,6 +2283,7 @@ output videoIndexerName string = videoIndexer.name
 output videoIndexerPrincipalId string = videoIndexer.identity.principalId
 var videoProcessEndpoint = 'https://${videoIndexerTokenName}.${location}.api.videoindexer.ai'
 output videoProcessEndpoint string = videoProcessEndpoint
+output videoIndexerAccountId string = videoIndexer.properties.accountId
 
 
 // Add Language endpoint to outputs

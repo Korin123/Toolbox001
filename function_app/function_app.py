@@ -15,8 +15,8 @@ from src.helpers.azure_function import (
     check_if_env_var_is_set,
 )
 from azure.identity import DefaultAzureCredential
-import subprocess
-import tempfile
+from azure.storage.blob.aio import BlobServiceClient as AsyncBlobServiceClient
+from azure.storage.blob import BlobServiceClient as SyncBlobServiceClient
 
 load_dotenv()
 
@@ -517,53 +517,180 @@ async def audio_preprocessed_blob_trigger(
         logging.error(traceback.format_exc())
 
 ##### Adding video processing orchestration
-import os
-import logging
-import traceback
-import asyncio
-from azure.storage.blob.aio import BlobServiceClient
-import azure.functions as func
 
-# --- VIDEO CONTAINER CALLER ---
-async def call_video_processing_container(blob_url, storage_account_name, source_container, dest_container):
-    """
-    Calls the video container app to process the uploaded video.
-    """
-    processor_url = os.getenv("VIDEOPROCESS_ENDPOINT")
-    if not processor_url:
-        logging.error("VIDEOPROCESS_ENDPOINT not set")
-        return None
+# --- 1) BLOB TRIGGER: START ORCHESTRATOR ----------------------------------
 
-    payload = {
-        "blob_url": blob_url,
-        "storage_account_name": storage_account_name,
-        "source_container": source_container,
-        "dest_container": dest_container
-    }
+@app.function_name("video_blob_trigger")
+@app.blob_trigger(
+    arg_name="inputblob_video",
+    path="video-in/{name}",
+    connection="AzureWebJobsStorage",
+)
+@app.durable_client_input(client_name="starter")
+async def video_blob_trigger(
+    inputblob_video: func.InputStream,
+    starter: df.DurableOrchestrationClient
+):
+    logging.warning("🎥 Video blob trigger fired!")
+
+    blob_name = inputblob_video.name.replace("video-in/", "")
+    account_name = os.getenv("STORAGE_ACCOUNT_NAME")
+    if not account_name:
+        logging.error("Missing STORAGE_ACCOUNT_NAME")
+        return
+
+    content_url = f"https://{account_name}.blob.core.windows.net/video-in/{blob_name}"
+    logging.warning(f"🎥 Raw video URL: {content_url}")
 
     try:
-        import aiohttp
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{processor_url}/process", json=payload) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data.get("processed_url")
-                else:
-                    text = await resp.text()
-                    logging.error(f"❌ Video container call failed: {resp.status} - {text}")
-                    return None
+        # 1. Wait until the blob is fully uploaded
+        if not await wait_for_blob_ready_async(content_url, "video-in"):
+            logging.error("❌ Video blob not ready after retries. Skipping.")
+            return
+
+        # 2. Call Video Indexer to start processing; get back a videoId
+        video_indexer_account = os.getenv("VIDEO_INDEXER_ACCOUNT")
+        video_id = await call_video_indexer(content_url, video_indexer_account)
+        if not video_id:
+            logging.error(f"❌ Video indexing submission failed for: {blob_name}")
+            return
+
+        logging.info(f"✅ Video indexing submitted, videoId: {video_id}")
+
+        # 3. Kick off the durable orchestrator, passing videoId & blobName
+        instance_id = await starter.start_new(
+            "video_processing_orchestrator",
+            client_input={ "videoId": video_id, "blobName": blob_name }
+        )
+        logging.warning(f"🎬 Orchestrator started with ID = {instance_id}")
+
     except Exception as e:
-        logging.error(f"❌ Exception in call_video_processing_container: {e}")
-        return None
+        logging.error(f"❌ Error in video_blob_trigger: {e}")
+        logging.error(traceback.format_exc())
 
 
-# --- WAIT FOR BLOB ---
-async def wait_for_blob_ready_async(blob_url, container_name, max_retries=6, delay=5):
+# --- 2) ORCHESTRATOR FUNCTION --------------------------------------------
+
+@app.orchestration_trigger(context_name="context")
+def video_processing_orchestrator(context: df.DurableOrchestrationContext):
+    """
+    1) Poll Video Indexer until processed
+    2) Write insights JSON back into blob storage
+    """
+    input_data = context.get_input()
+    video_id = input_data.get("videoId")
+    blob_name = input_data.get("blobName")
+
+    # 1. Poll until Video Indexer marks it as "Processed"
+    poll_result = yield context.call_activity("poll_video_index_activity", {
+        "videoId": video_id,
+        "blobName": blob_name
+    })
+    if not poll_result or poll_result.get("error"):
+        error_msg = poll_result.get("error") if poll_result else "Unknown polling error"
+        logging.error(f"❌ Polling failed: {error_msg}")
+        return { "error": error_msg }
+
+    # 2. Write the final insights JSON into "video-processed-out"
+    write_result = yield context.call_activity("write_video_output_activity", poll_result)
+    return write_result
+
+
+# --- 3) ACTIVITY: POLL VIDEO INDEXER --------------------------------------
+
+@app.activity_trigger(input_name="input_data")
+def poll_video_index_activity(input_data: dict) -> dict:
+    """
+    Polls Azure Video Indexer until the "state" is "Processed".
+    Returns { "insightsJson": <full JSON>, "blobName": <original> }
+    or { "error": "...", "blobName": <original> }.
+    """
     try:
-        from azure.identity.aio import DefaultAzureCredential
+        account_id = os.getenv("VIDEO_INDEXER_ACCOUNT")
+        location = os.getenv("VIDEO_INDEXER_LOCATION")
+        video_id = input_data["videoId"]
+        blob_name = input_data["blobName"]
+
+        # 1. Acquire AAD token via managed identity
+        token = DefaultAzureCredential().get_token(
+            "https://api.videoindexer.ai/.default"
+        ).token
+
+        headers = {
+            "Ocp-Apim-Subscription-Key": os.getenv("VIDEO_INDEXER_KEY"),
+            "Authorization": f"Bearer {token}"
+        }
+        index_url = f"https://api.videoindexer.ai/{location}/Accounts/{account_id}/Videos/{video_id}/Index"
+
+        # 2. Poll for up to ~7.5 minutes (30 attempts × 15s delay)
+        for attempt in range(30):
+            resp = requests.get(index_url, headers=headers, params={"language": "English"})
+            if resp.status_code != 200:
+                raise Exception(f"Polling error {resp.status_code}: {resp.text}")
+
+            data = resp.json()
+            state = data.get("state")
+            logging.info(f"[Polling Attempt {attempt+1}] State = {state}")
+
+            if state == "Processed":
+                return { "insightsJson": data, "blobName": blob_name }
+            elif state in ("Failed", "Rejected"):
+                return { "error": f"Indexing failed: {json.dumps(data)}", "blobName": blob_name }
+
+            time.sleep(15)
+
+        return { "error": "Polling timed out", "blobName": blob_name }
+
+    except Exception as e:
+        logging.error(f"❌ Exception in poll_video_index_activity: {e}")
+        logging.error(traceback.format_exc())
+        return { "error": str(e), "blobName": input_data.get("blobName") }
+
+
+# --- 4) ACTIVITY: WRITE INSIGHTS TO BLOB ----------------------------------
+
+@app.activity_trigger(input_name="input_data")
+def write_video_output_activity(input_data: dict) -> str:
+    """
+    Writes the insights JSON into the "video-processed-out" container.
+    Blob name will be "<originalName>-insights.json".
+    """
+    try:
+        insights = input_data["insightsJson"]
+        blob_name = input_data["blobName"]
+        storage_account = os.getenv("STORAGE_ACCOUNT_NAME")
+
         credential = DefaultAzureCredential()
-        blob_service_client = BlobServiceClient(
-            account_url=f"https://{os.getenv('STORAGE_ACCOUNT_NAME')}.blob.core.windows.net",
+        client = SyncBlobServiceClient(
+            account_url=f"https://{storage_account}.blob.core.windows.net",
+            credential=credential
+        )
+        container = client.get_container_client("video-processed-out")
+
+        output_name = blob_name.rsplit(".", 1)[0] + "-insights.json"
+        content = json.dumps(insights, indent=2)
+        container.upload_blob(output_name, content, overwrite=True)
+
+        logging.info(f"✅ Wrote insights blob: video-processed-out/{output_name}")
+        return "OK"
+
+    except Exception as e:
+        logging.error(f"❌ Failed to write video output: {e}")
+        logging.error(traceback.format_exc())
+        return "ERROR"
+
+
+# --- HELPERS USED DURING PROCESSING ---------------------------------------
+
+async def wait_for_blob_ready_async(blob_url: str, container_name: str, max_retries: int = 6, delay: int = 5) -> bool:
+    """
+    Polls the blob until its size > 0 or until max_retries is exhausted.
+    """
+    try:
+        credential = credential()
+        account_name = os.getenv("STORAGE_ACCOUNT_NAME")
+        blob_service_client = AsyncBlobServiceClient(
+            account_url=f"https://{account_name}.blob.core.windows.net",
             credential=credential
         )
         container_client = blob_service_client.get_container_client(container_name)
@@ -572,63 +699,47 @@ async def wait_for_blob_ready_async(blob_url, container_name, max_retries=6, del
 
         for _ in range(max_retries):
             props = await blob_client.get_blob_properties()
-            if props.size > 0:
+            if props.size and props.size > 0:
                 await blob_service_client.close()
                 return True
             await asyncio.sleep(delay)
 
         await blob_service_client.close()
         return False
+
     except Exception as e:
-        logging.error(f"❌ Error checking blob readiness in {container_name}: {e}")
+        logging.error(f"❌ Error checking blob readiness ({container_name}): {e}")
         return False
 
 
-# --- BLOB TRIGGER FOR VIDEO ---
-@app.function_name("video_blob_trigger")
-@app.blob_trigger(
-    arg_name="inputblob_video",
-    path="video-in/{name}",
-    connection="AzureWebJobsStorage",
-)
-async def video_blob_trigger(inputblob_video: func.InputStream):
-    logging.warning("🎥 Video blob trigger fired!")
-    blob_name = inputblob_video.name.replace("video-in/", "")
-    storage_account_name = os.getenv("STORAGE_ACCOUNT_NAME")
-    if not storage_account_name:
-        logging.error("Missing STORAGE_ACCOUNT_NAME")
-        return
+async def call_video_indexer(blob_url: str, video_indexer_account: str) -> str:
+    """
+    Posts to a custom Video Indexer endpoint which in turn calls Azure Video Indexer.
+    Expects the endpoint to return either {"videoId": "..."} or {"insightsUrl": "..."}.
+    """
+    processor_url = os.getenv("VIDEOPROCESS_ENDPOINT")
+    account_id = video_indexer_account or os.getenv("VIDEO_INDEXER_ACCOUNT")
 
-    content_url = f"https://{storage_account_name}.blob.core.windows.net/video-in/{blob_name}"
-    logging.warning(f"🎥 Raw video URL: {content_url}")
+    if not processor_url or not account_id:
+        logging.error("Missing VIDEOPROCESS_ENDPOINT or VIDEO_INDEXER_ACCOUNT")
+        return None
+
+    payload = {
+        "blob_url": blob_url,
+        "account_id": account_id
+    }
 
     try:
-        # Wait for uploaded video to become available
-        if not await wait_for_blob_ready_async(content_url, "video-in"):
-            logging.error("❌ Video blob not ready after retries. Skipping.")
-            return
-
-        # Call container app to process video
-        processed_url = await call_video_processing_container(
-            blob_url=content_url,
-            storage_account_name=storage_account_name,
-            source_container="video-in",
-            dest_container="video-processed"
-        )
-
-        if not processed_url:
-            logging.error(f"❌ Processing failed for video: {blob_name}")
-            return
-
-        logging.info(f"✅ Processed video URL: {processed_url}")
-
-        # Wait for processed file to appear
-        if not await wait_for_blob_ready_async(processed_url, "video-processed"):
-            logging.error("❌ Processed blob not ready after upload.")
-            return
-
-        logging.info(f"📦 Video processing complete for {blob_name}")
-
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{processor_url}/process", json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("videoId") or data.get("insightsUrl")
+                else:
+                    text = await resp.text()
+                    logging.error(f"❌ Video Indexer call failed: {resp.status} - {text}")
+                    return None
     except Exception as e:
-        logging.error(f"❌ Error in video_blob_trigger: {e}")
-        logging.error(traceback.format_exc())
+        logging.error(f"❌ Exception in call_video_indexer: {e}")
+        return None
