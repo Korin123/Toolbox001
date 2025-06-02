@@ -1829,6 +1829,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       SPEECH_RESOURCE_ID: speech.id
       // Ensure AUDIOMONO_ENDPOINT is set for the function app:
       AUDIOMONO_ENDPOINT: 'https://audiomono-${resourceToken}.azurewebsites.net'
+      VIDEOPROCESS_ENDPOINT: videoProcessEndpoint
     })
   }
   dependsOn: [
@@ -2248,6 +2249,40 @@ module audiomonoWebAppCosmosDbRoleAssignment 'cosmosdb-account-role-assignment.b
     roleDefinitionId: cosmosDbDataContributorRoleDefinition.id
   }
 }
+
+var videoIndexerBaseName = '${resourcePrefix}-videoindexer'
+var videoIndexerTokenName = appendUniqueUrlSuffix
+  ? toLower('${videoIndexerBaseName}-${resourceToken}')
+  : toLower(videoIndexerBaseName)
+
+resource videoIndexer 'Microsoft.VideoIndexer/accounts@2024-01-01' = {
+  name: videoIndexerTokenName
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    storageServices: {
+      resourceId: storageAccount.id
+    }
+  }
+}
+resource videoIndexerStorageAccess 'Microsoft.Authorization/roleAssignments@2020-10-01-preview' = {
+  name: guid(storageAccount.id, videoIndexer.id, 'Storage Blob Data Contributor')
+  scope: storageAccount
+  properties: {
+    principalId: videoIndexer.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    principalType: 'ServicePrincipal'
+  }
+}
+
+output videoIndexerName string = videoIndexer.name
+output videoIndexerPrincipalId string = videoIndexer.identity.principalId
+var videoProcessEndpoint = 'https://${videoIndexerTokenName}.${location}.api.videoindexer.ai'
+output videoProcessEndpoint string = videoProcessEndpoint
+
+
 // Add Language endpoint to outputs
 output FunctionAppUrl string = functionApp.properties.defaultHostName
 output webAppUrl string = deployWebApp ? webApp.properties.defaultHostName : ''
