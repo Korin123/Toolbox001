@@ -47,7 +47,7 @@ param blobContainerNames array = [
 ]
 
 @description('The name of the Azure Container Registry')
-param acrName string = 'llmpacr01'
+param acrName string = 'llmpacr01${resourceToken}'
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
   name: acrName
