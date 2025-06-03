@@ -1829,7 +1829,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       SPEECH_RESOURCE_ID: speech.id
       // Ensure AUDIOMONO_ENDPOINT is set for the function app:
       AUDIOMONO_ENDPOINT: 'https://audiomono-${resourceToken}.azurewebsites.net'
-      VIDEOPROCESS_ENDPOINT: videoProcessEndpoint
+      VIDEO_INDEXER_LOCATION: location
       VIDEO_INDEXER_ACCOUNT: videoIndexer.properties.accountId
 
     })
@@ -2279,11 +2279,13 @@ resource videoIndexerStorageAccess 'Microsoft.Authorization/roleAssignments@2020
   }
 }
 
+
 output videoIndexerName string = videoIndexer.name
 output videoIndexerPrincipalId string = videoIndexer.identity.principalId
-var videoProcessEndpoint = 'https://${videoIndexerTokenName}.${location}.api.videoindexer.ai'
-output videoProcessEndpoint string = videoProcessEndpoint
 output videoIndexerAccountId string = videoIndexer.properties.accountId
+output functionAppPrincipalId string = functionApp.identity.principalId
+output videoIndexerLocation string = location
+
 
 
 // Add Language endpoint to outputs
@@ -2311,3 +2313,17 @@ output LANGUAGE_ENDPOINT string = deployLanguageResource
 output audiomonoWebAppUrl string = 'https://${audiomonoWebApp.properties.defaultHostName}'
 
 output AUDIOMONO_ENDPOINT string = 'https://audiomono-${resourceToken}.azurewebsites.net'
+
+resource videoIndexerFunctionAccess 'Microsoft.Authorization/roleAssignments@2020-10-01-preview' = {
+  name: guid(videoIndexer.id, functionApp.id, 'avi-funcapp-contributor')
+  scope: videoIndexer
+  properties: {
+    principalId: functionApp.identity.principalId
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'b24988ac-6180-42a0-ab88-20f7382dd24c'  // Contributor role
+    )
+    principalType: 'ServicePrincipal'
+  }
+}
+
