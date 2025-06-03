@@ -57,6 +57,8 @@ IS_COSMOSDB_AVAILABLE = check_if_env_var_is_set("COSMOSDB_DATABASE_NAME") and ch
 if IS_AOAI_DEPLOYED:
     from bp_summarize_text import bp_summarize_text
     app.register_blueprint(bp_summarize_text)
+    from bp_translate_document import bp_translate_document
+    app.register_blueprint(bp_translate_document)
 if IS_DOC_INTEL_DEPLOYED and IS_AOAI_DEPLOYED:
     from bp_doc_intel_extract_city_names import bp_doc_intel_extract_city_names
     from bp_form_extraction_with_confidence import bp_form_extraction_with_confidence
