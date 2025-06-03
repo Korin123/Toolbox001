@@ -5,7 +5,7 @@ metadata:
   template: multimodal-llm-ai-processing-accelerator@0.0.1
 
 hooks:
-  postprovision: 
+  postprovision:
     posix:
       shell: sh
       run: |
@@ -34,7 +34,7 @@ services:
     language: python
     host: function
     hooks:
-      prepackage: 
+      prepackage:
         posix:
           shell: sh
           run: cp ../requirements.txt requirements.txt
@@ -45,7 +45,7 @@ services:
           run: copy ../requirements.txt requirements.txt
           interactive: false
           continueOnError: false
-      postpackage: 
+      postpackage:
         posix:
           shell: sh
           run: rm ./requirements.txt
@@ -62,17 +62,16 @@ services:
     host: appservice
     docker:
       path: ./audiomono_app
-      image: llmpacr01.azurecr.io/functionapp-image:latest
+      image: llmpacr01${resourceToken}.azurecr.io/functionapp-image:latest
     env:
       AUDIOMONO_ENDPOINT: https://${audiomonoWebAppUrl}
-
 
   webapp:
     project: ./demo_app/
     language: py
     host: appservice
     hooks:
-      prepackage: 
+      prepackage:
         posix:
           shell: sh
           run: |
@@ -89,7 +88,7 @@ services:
             if (Test-Path -Path "./.env") { Move-Item -Path "./.env" -Destination "../.demo_app.env.bak" }
           interactive: false
           continueOnError: false
-      postpackage: 
+      postpackage:
         posix:
           shell: sh
           run: |
