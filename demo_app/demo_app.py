@@ -2221,68 +2221,79 @@ with gr.Blocks(analytics_enabled=False) as di_proc_block:
         ],
     )
 
-### Document Translation Example ###
-with gr.Blocks(analytics_enabled=False) as doc_translate_block:
-    def translate_doc_request(file: Optional[str]):
-        translated_text = ""
+### Augmented Document Translation Example ###
+with gr.Blocks(analytics_enabled=False) as doc_translate_aug_block:
+    def translate_doc_aug_request(file: Optional[str]):
+        translation_md = ""
+        entities_text = ""
         summary_text = ""
         if file is None:
             gr.Warning(
                 "Please select or upload a PDF file to translate."
             )
-            return ("", "", translated_text, summary_text)
+            return ("", "", translation_md, entities_text, summary_text)
         mime_type = mimetypes.guess_type(file)[0]
         with open(file, "rb") as f:
             data = f.read()
             headers = {"Content-Type": mime_type}
             status_code, time_taken, response = send_request(
-                route="translate_document",
+                route="translate_document_augmented",
                 data=data,
                 headers=headers,
                 force_json_content_type=True,
             )
         if isinstance(response, dict):
-            translated_text = response.get("translation", "")
+            pages = response.get("pages", []) or []
+            lines = []
+            for p in pages:
+                page_num = p.get("page")
+                text = p.get("translation", "")
+                lines.append(f"### Page {page_num}\n{text}")
+            translation_md = "\n\n".join(lines)
+            if response.get("entities"):
+                entities_text = ", ".join(response["entities"])
             summary_text = response.get("summary", "")
-        return status_code, time_taken, translated_text, summary_text
+        return status_code, time_taken, translation_md, entities_text, summary_text
 
-    doc_translate_instructions = gr.Markdown(
-        "Upload a PDF document. The file will be translated to English and summarised below."
+    doc_translate_aug_instructions = gr.Markdown(
+        "Upload a PDF document. Each page will be translated to English, key entities extracted and the document summarised."
     )
     with gr.Row():
         with gr.Column():
-            doc_translate_file_upload = gr.File(
+            doc_translate_aug_file_upload = gr.File(
                 label="Upload PDF", file_count="single", type="filepath"
             )
-            doc_translate_input_thumbs = gr.Gallery(
+            doc_translate_aug_input_thumbs = gr.Gallery(
                 label="File Preview", object_fit="contain", visible=True
             )
         with gr.Column():
             with gr.Row():
-                doc_translate_status_code = gr.Textbox(
+                doc_translate_aug_status_code = gr.Textbox(
                     label="Response Status Code", interactive=False
                 )
-                doc_translate_time_taken = gr.Textbox(
+                doc_translate_aug_time_taken = gr.Textbox(
                     label="Time Taken", interactive=False
                 )
-            doc_translate_translation = gr.Textbox(
-                label="Translated Text", lines=10
+            doc_translate_aug_translation = gr.Markdown(
+                label="Page Translations", line_breaks=True
             )
-            doc_translate_summary = gr.Textbox(label="Summary", lines=3)
+            doc_translate_aug_entities = gr.Textbox(label="Entities")
+            doc_translate_aug_summary = gr.Textbox(label="Summary", lines=3)
 
-    doc_translate_file_upload.change(
+    doc_translate_aug_file_upload.change(
         fn=render_visual_media_input,
-        inputs=[doc_translate_file_upload],
-        outputs=[doc_translate_input_thumbs],
+        inputs=[doc_translate_aug_file_upload],
+        outputs=[doc_translate_aug_input_thumbs],
     )
-    doc_translate_file_upload.change(
-        fn=translate_doc_request,
-        inputs=[doc_translate_file_upload],
+    doc_translate_aug_file_upload.change(
+        fn=translate_doc_aug_request,
+        inputs=[doc_translate_aug_file_upload],
         outputs=[
-            doc_translate_status_code,
-            doc_translate_time_taken,
-            doc_translate_translation,
-            doc_translate_summary,
+            doc_translate_aug_status_code,
+            doc_translate_aug_time_taken,
+            doc_translate_aug_translation,
+            doc_translate_aug_entities,
+            doc_translate_aug_summary,
         ],
     )
     
@@ -2517,8 +2528,8 @@ with gr.Blocks(
         pii_redaction_block.render()
     with gr.Tab("Key Information Extraction, Doc Intelligence (HTTP)"):
         di_llm_ext_names_block.render()
-    with gr.Tab("Document Translation (HTTP)"):
-        doc_translate_block.render()
+    with gr.Tab("Augmented Document Translation (HTTP)"):
+        doc_translate_aug_block.render()
     with gr.Tab("Audio Batch Processing (HTTP)"):
         audio_transcription_tab(blob_service_client)
     with gr.Tab("Video Processing"):
