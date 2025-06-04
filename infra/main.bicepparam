@@ -65,6 +65,10 @@ param deployLanguageResource = true
 // 1. https://learn.microsoft.com/en-us/azure/ai-services/language-service/concepts/regional-support
 param languageLocation = 'uksouth'
 
+// Translator
+param deployTranslatorResource = true
+param translatorLocation = 'global'
+
 // Azure OpenAI options
 param deployOpenAIResource = true
 // Ensure your OpenAI service locations have model availability - see:

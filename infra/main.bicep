@@ -109,6 +109,12 @@ param deployLanguageResource bool = true
 @description('The location of the Azure Language resource. This should be in a location where all required models are available.')
 param languageLocation string = 'uksouth'
 
+@description('Whether to deploy the Azure Translator resource (a single-service AI resource)')
+param deployTranslatorResource bool = true
+
+@description('The location of the Azure Translator resource.')
+param translatorLocation string = 'global'
+
 @description('Whether to deploy the Azure OpenAI resource (a single-service AI resource). If set to false, all OpenAI-related model deployments will be skipped.')
 param deployOpenAIResource bool = true
 
@@ -261,6 +267,7 @@ var logAnalyticsTokenName = toLower('${resourcePrefix}-func-la-${resourceToken}'
 var appInsightsTokenName = toLower('${resourcePrefix}-func-appins-${resourceToken}')
 var keyVaultName = toLower('${resourcePrefix}-kv-${resourceToken}')
 var languageTokenName = toLower('${resourcePrefix}-language-${languageLocation}-${resourceToken}')
+var translatorTokenName = toLower('${resourcePrefix}-translator-${translatorLocation}-${resourceToken}')
 
 // Define role definition IDs for Azure AI Services & Storage
 // See Azure list here: https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
@@ -1415,6 +1422,84 @@ module languageRoleAssignments 'multiple-ai-services-role-assignment.bicep' = if
   }
 }
 
+// Azure Translator
+resource translator 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (deployTranslatorResource) {
+  name: translatorTokenName
+  location: translatorLocation
+  kind: 'TextTranslation'
+  properties: {
+    publicNetworkAccess: backendServicesAllowPublicAccess ? 'Enabled' : 'Disabled'
+    customSubDomainName: translatorTokenName
+    disableLocalAuth: true
+    networkAcls: {
+      // Set defaultAction to Allow when public access is enabled and no IP ranges are specified
+      defaultAction: (backendServicesAllowPublicAccess && empty(backendServicesAllowedExternalIpsOrIpRanges))
+        ? 'Allow'
+        : 'Deny'
+      // Only include VNET rules when using service endpoints
+      virtualNetworkRules: backendServicesNetworkingType == 'ServiceEndpoint'
+        ? [
+            {
+              id: '${vnet.id}/subnets/${functionAppSubnetName}'
+              ignoreMissingVnetServiceEndpoint: false
+            }
+          ]
+        : []
+      // Only add IP rules if public access is enabled and specific IPs are provided
+      ipRules: (backendServicesAllowPublicAccess && !empty(backendServicesAllowedExternalIpsOrIpRanges))
+        ? map(backendServicesAllowedExternalIpsOrIpRanges, ip => {
+            value: ip
+          })
+        : []
+    }
+  }
+  sku: {
+    name: 'S1'
+  }
+}
+
+resource translatorPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = if (deployTranslatorResource && backendServicesNetworkingType == 'PrivateEndpoint') {
+  name: '${translator.name}-private-endpoint'
+  location: location
+  properties: {
+    subnet: {
+      id: '${vnet.id}/subnets/${backendServicesSubnetName}'
+    }
+    privateLinkServiceConnections: [
+      {
+        name: '${translator.name}-plsc'
+        properties: {
+          privateLinkServiceId: translator.id
+          groupIds: ['account']
+        }
+      }
+    ]
+  }
+
+  resource translatorPrivateDnsZoneGroup 'privateDnsZoneGroups@2024-05-01' = {
+    name: 'translatorPrivateDnsZoneGroup'
+    properties: {
+      privateDnsZoneConfigs: [
+        {
+          name: 'config'
+          properties: {
+            privateDnsZoneId: privateCognitiveServicesDnsZone.id
+          }
+        }
+      ]
+    }
+  }
+}
+
+module translatorRoleAssignments 'multiple-ai-services-role-assignment.bicep' = if (deployTranslatorResource) {
+  name: guid(translator.id, additionalRoleAssignmentIdsStr, 'AiServicesRoleAssignments')
+  params: {
+    aiServiceName: translator.name
+    principalIds: roleAssignmentIdentityIds
+    roleDefinitionIds: [roleDefinitions.cognitiveServicesUser]
+  }
+}
+
 // Azure OpenAI
 resource azureopenai 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (deployOpenAIResource) {
   name: openAITokenName
@@ -1706,6 +1791,12 @@ var optionalDeploymentFuncAppEnvVars = union(
   deployLanguageResource
     ? {
         LANGUAGE_ENDPOINT: 'https://${languageTokenName}.cognitiveservices.azure.com/'
+      }
+    : {},
+  deployTranslatorResource
+    ? {
+        TRANSLATOR_ENDPOINT: translator.properties.endpoint
+        TRANSLATOR_REGION: translatorLocation
       }
     : {},
   deploySpeechResource
@@ -2269,6 +2360,7 @@ output SPEECH_ENDPOINT string = deploySpeechResource ? speech.properties.endpoin
 output LANGUAGE_ENDPOINT string = deployLanguageResource
   ? 'https://${languageTokenName}.cognitiveservices.azure.com/'
   : ''
+output TRANSLATOR_ENDPOINT string = deployTranslatorResource ? translator.properties.endpoint : ''
 
 output audiomonoWebAppUrl string = 'https://${audiomonoWebApp.properties.defaultHostName}'
 

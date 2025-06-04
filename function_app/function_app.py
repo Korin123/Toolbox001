@@ -41,6 +41,7 @@ IS_AOAI_DEPLOYED = check_if_env_var_is_set("AOAI_ENDPOINT")
 IS_DOC_INTEL_DEPLOYED = check_if_env_var_is_set("DOC_INTEL_ENDPOINT")
 IS_SPEECH_DEPLOYED = check_if_env_var_is_set("SPEECH_ENDPOINT")
 IS_LANGUAGE_DEPLOYED = check_if_env_var_is_set("LANGUAGE_ENDPOINT")
+IS_TRANSLATOR_DEPLOYED = check_if_env_var_is_set("TRANSLATOR_ENDPOINT")
 IS_STORAGE_ACCOUNT_AVAILABLE = (
     os.getenv("AzureWebJobsStorage") == "UseDevelopmentStorage=true"
     and check_if_azurite_storage_emulator_is_running()
@@ -59,6 +60,9 @@ if IS_AOAI_DEPLOYED:
     app.register_blueprint(bp_summarize_text)
     from bp_translate_document import bp_translate_document
     app.register_blueprint(bp_translate_document)
+if IS_TRANSLATOR_DEPLOYED and IS_LANGUAGE_DEPLOYED and IS_AOAI_DEPLOYED:
+    from bp_translate_document_augmented import bp_translate_document_augmented
+    app.register_blueprint(bp_translate_document_augmented)
 if IS_DOC_INTEL_DEPLOYED and IS_AOAI_DEPLOYED:
     from bp_doc_intel_extract_city_names import bp_doc_intel_extract_city_names
     from bp_form_extraction_with_confidence import bp_form_extraction_with_confidence

@@ -9,6 +9,7 @@ pillow==10.3.0
 azure-storage-blob>=12.19.1
 opencv-python-headless==4.10.0.84
 moviepy==2.2.0
+requests>=2.32.0
 
 # Demo app only
 gradio==4.43.0
