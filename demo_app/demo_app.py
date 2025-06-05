@@ -1304,16 +1304,8 @@ if IS_COSMOSDB_AVAILABLE:
         # Input components
         blob_form_to_cosmosdb_instructions = gr.Markdown(
             (
-                "This example extracts key information from Bank Account application forms, triggered by uploading the document to blob storage and with the results written to a CosmosDB NoSQL database "
-                "([Code Link](https://github.com/azure/multimodal-ai-llm-processing-accelerator/blob/main/function_app/extract_blob_field_info_to_cosmosdb.py))."
-                "\n\nThe pipeline is as follows:\n"
-                "1. The PDF is uploaded to a blob storage container, triggering the pipeline.\n"
-                "2. PyMuPDF is used to convert the PDFs into images.\n"
-                "3. Azure Document Intelligence extracts the raw text from the PDF along with confidence scores for each "
-                "word/line.\n"
-                "4. The image and raw extracted text are sent together in a multimodal request to GPT-4o. "
-                "GPT-4o is instructed to extract all of the key information from the form in a structured format.\n"
-                "5. The result is saved directly to a CosmosDB NoSQL table, ready for querying by downstream applications.\n"
+                "This example extracts key information from Bank Account application forms, triggered by uploading the document to blob storage and with the results written to a CosmosDB NoSQL database - Currently WIP "
+                 
                 "Note: Any files uploaded as part of this pipeline are deleted immediately after processing.\n"
             ),
             show_label=False,
@@ -1513,7 +1505,7 @@ with gr.Blocks(analytics_enabled=False) as call_center_audio_processing_block:
 
     cc_audio_proc_instructions = gr.Markdown(
         (
-            "Upload an audio or video file. Video files will be automatically converted to audio and analyzed for call center insights."
+            "Upload an audio or video file. Video files will be automatically converted to audio and analyzed for transcription and summarisation."
         ),
         show_label=False,
     )
@@ -1968,10 +1960,9 @@ with gr.Blocks(analytics_enabled=False) as di_llm_ext_names_block:
         (
             "This example uses Azure Document Intelligence to extract the raw text from a PDF or image file, then "
             "sends the instructions and extracted text to GPT-4o "
-            "([Code Link](https://github.com/Azure/multimodal-ai-llm-processing-accelerator/blob/main/function_app/bp_doc_intel_extract_city_names.py))."
             "\n\nThe pipeline is as follows:\n"
             "1. Azure Document Intelligence extracts the raw text from the PDF along with confidence scores.\n"
-            "2. GPT-4o is instructed to extract a list of city names.\n\n"
+            "2. GPT-4o is instructed to extract a list of key entities and then summarises them.\n\n"
             "The response includes the final result, as well as intermediate outputs from the processing pipeline."
         ),
         show_label=False,
@@ -2221,79 +2212,68 @@ with gr.Blocks(analytics_enabled=False) as di_proc_block:
         ],
     )
 
-### Augmented Document Translation Example ###
-with gr.Blocks(analytics_enabled=False) as doc_translate_aug_block:
-    def translate_doc_aug_request(file: Optional[str]):
-        translation_md = ""
-        entities_text = ""
+### Document Translation Example ###
+with gr.Blocks(analytics_enabled=False) as doc_translate_block:
+    def translate_doc_request(file: Optional[str]):
+        translated_text = ""
         summary_text = ""
         if file is None:
             gr.Warning(
                 "Please select or upload a PDF file to translate."
             )
-            return ("", "", translation_md, entities_text, summary_text)
+            return ("", "", translated_text, summary_text)
         mime_type = mimetypes.guess_type(file)[0]
         with open(file, "rb") as f:
             data = f.read()
             headers = {"Content-Type": mime_type}
             status_code, time_taken, response = send_request(
-                route="translate_document_augmented",
+                route="translate_document",
                 data=data,
                 headers=headers,
                 force_json_content_type=True,
             )
         if isinstance(response, dict):
-            pages = response.get("pages", []) or []
-            lines = []
-            for p in pages:
-                page_num = p.get("page")
-                text = p.get("translation", "")
-                lines.append(f"### Page {page_num}\n{text}")
-            translation_md = "\n\n".join(lines)
-            if response.get("entities"):
-                entities_text = ", ".join(response["entities"])
+            translated_text = response.get("translation", "")
             summary_text = response.get("summary", "")
-        return status_code, time_taken, translation_md, entities_text, summary_text
+        return status_code, time_taken, translated_text, summary_text
 
-    doc_translate_aug_instructions = gr.Markdown(
-        "Upload a PDF document. Each page will be translated to English, key entities extracted and the document summarised."
+    doc_translate_instructions = gr.Markdown(
+        "Upload a PDF document. The file will be translated to English and summarised below."
     )
     with gr.Row():
         with gr.Column():
-            doc_translate_aug_file_upload = gr.File(
+            doc_translate_file_upload = gr.File(
                 label="Upload PDF", file_count="single", type="filepath"
             )
-            doc_translate_aug_input_thumbs = gr.Gallery(
+            doc_translate_input_thumbs = gr.Gallery(
                 label="File Preview", object_fit="contain", visible=True
             )
         with gr.Column():
             with gr.Row():
-                doc_translate_aug_status_code = gr.Textbox(
+                doc_translate_status_code = gr.Textbox(
                     label="Response Status Code", interactive=False
                 )
-                doc_translate_aug_time_taken = gr.Textbox(
+                doc_translate_time_taken = gr.Textbox(
                     label="Time Taken", interactive=False
                 )
-            doc_translate_aug_translation = gr.Markdown(
-                label="Page Translations", line_breaks=True
+            doc_translate_translation = gr.Textbox(
+                label="Translated Text", lines=10
             )
-            doc_translate_aug_entities = gr.Textbox(label="Entities")
-            doc_translate_aug_summary = gr.Textbox(label="Summary", lines=3)
+            doc_translate_summary = gr.Textbox(label="Summary", lines=3)
 
-    doc_translate_aug_file_upload.change(
+    doc_translate_file_upload.change(
         fn=render_visual_media_input,
-        inputs=[doc_translate_aug_file_upload],
-        outputs=[doc_translate_aug_input_thumbs],
+        inputs=[doc_translate_file_upload],
+        outputs=[doc_translate_input_thumbs],
     )
-    doc_translate_aug_file_upload.change(
-        fn=translate_doc_aug_request,
-        inputs=[doc_translate_aug_file_upload],
+    doc_translate_file_upload.change(
+        fn=translate_doc_request,
+        inputs=[doc_translate_file_upload],
         outputs=[
-            doc_translate_aug_status_code,
-            doc_translate_aug_time_taken,
-            doc_translate_aug_translation,
-            doc_translate_aug_entities,
-            doc_translate_aug_summary,
+            doc_translate_status_code,
+            doc_translate_time_taken,
+            doc_translate_translation,
+            doc_translate_summary,
         ],
     )
     
@@ -2484,8 +2464,9 @@ def video_processing_tab(blob_service_client, input_container="video-in", output
             )
 
 
-version="0.12"
+version="0.13"
 ## Version Control ###
+## v0.13 - Updated with translation tab
 ## v0.12 - Updated with video processing block
 ##  v0.11 - Updated with Audio Batch Processing and Blob Storage with downnload
 ##  v0.10 - Updated with Audio in and out blob storage
@@ -2516,8 +2497,8 @@ with gr.Blocks(
 #        form_extraction_with_confidence_block.render()
     with gr.Tab("Audio Processing (HTTP)"):
         call_center_audio_processing_block.render()
-    with gr.Tab("Multimodal Document Intelligence Processing (HTTP)"):
-        di_proc_block.render()
+#    with gr.Tab("Multimodal Document Intelligence Processing (HTTP)"):
+#        di_proc_block.render()
     if IS_COSMOSDB_AVAILABLE:
         # Only render the CosmosDB tab if CosmosDB database info is available
         with gr.Tab("Form Extraction (Blob -> CosmosDB)"):
@@ -2528,12 +2509,12 @@ with gr.Blocks(
         pii_redaction_block.render()
     with gr.Tab("Key Information Extraction, Doc Intelligence (HTTP)"):
         di_llm_ext_names_block.render()
-    with gr.Tab("Augmented Document Translation (HTTP)"):
-        doc_translate_aug_block.render()
+    with gr.Tab("Document Translation (HTTP)"):
+        doc_translate_block.render()
     with gr.Tab("Audio Batch Processing (HTTP)"):
         audio_transcription_tab(blob_service_client)
-    with gr.Tab("Video Processing"):
-        video_processing_tab(blob_service_client)
+#    with gr.Tab("Video Processing"):
+#        video_processing_tab(blob_service_client)
 
 
 if __name__ == "__main__":
