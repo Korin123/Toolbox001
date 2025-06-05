@@ -40,4 +40,3 @@ azure-functions-durable==1.2.6
 # Install haystack-ai fork with multimodal support - see https://github.com/deepset-ai/haystack/pull/7943/files
 https://github.com/CarlosFerLo/haystack/archive/3c2a913688e94001339d5dc3461da2862a28dac9.tar.gz
 pytest==8.3.2
-time
