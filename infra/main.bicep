@@ -113,7 +113,7 @@ param languageLocation string = 'uksouth'
 param deployTranslatorResource bool = true
 
 @description('The location of the Azure Translator resource.')
-param translatorLocation string = 'global'
+param translatorLocation string = 'uksouth'
 
 @description('Whether to deploy the Azure OpenAI resource (a single-service AI resource). If set to false, all OpenAI-related model deployments will be skipped.')
 param deployOpenAIResource bool = true
