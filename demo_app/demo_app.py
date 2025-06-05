@@ -2085,132 +2085,132 @@ with gr.Blocks(analytics_enabled=False) as di_llm_ext_names_block:
 #         ],
 #     )
 
-### Doc Intelligence Processing Example ###
-with gr.Blocks(analytics_enabled=False) as di_proc_block:
-    # Define requesting function, which reshapes the input into the correct schema
-    def di_proc_process_upload(
-        file: str,
-        include_page_images_after_content: bool,
-        extract_and_crop_inline_figures: bool,
-        pages_per_chunk: int,
-    ):
-        if file is None:
-            gr.Warning(
-                "Please select or upload an audio file, then click 'Process File'."
-            )
-            return ("", "", {})
-        # Get response from the API
-        with open(file, "rb") as f:
-            payload = {
-                "include_page_images_after_content": include_page_images_after_content,
-                "extract_and_crop_inline_figures": extract_and_crop_inline_figures,
-                "pages_per_chunk": pages_per_chunk,
-            }
-            file_mime_type = mimetypes.guess_type(file)[0]
-            files = {
-                "file": (file, f, file_mime_type),
-                "json": ("payload.json", json.dumps(payload), "application/json"),
-            }
+# ### Doc Intelligence Processing Example ###
+# with gr.Blocks(analytics_enabled=False) as di_proc_block:
+#     # Define requesting function, which reshapes the input into the correct schema
+#     def di_proc_process_upload(
+#         file: str,
+#         include_page_images_after_content: bool,
+#         extract_and_crop_inline_figures: bool,
+#         pages_per_chunk: int,
+#     ):
+#         if file is None:
+#             gr.Warning(
+#                 "Please select or upload an audio file, then click 'Process File'."
+#             )
+#             return ("", "", {})
+#         # Get response from the API
+#         with open(file, "rb") as f:
+#             payload = {
+#                 "include_page_images_after_content": include_page_images_after_content,
+#                 "extract_and_crop_inline_figures": extract_and_crop_inline_figures,
+#                 "pages_per_chunk": pages_per_chunk,
+#             }
+#             file_mime_type = mimetypes.guess_type(file)[0]
+#             files = {
+#                 "file": (file, f, file_mime_type),
+#                 "json": ("payload.json", json.dumps(payload), "application/json"),
+#             }
 
-            request_outputs = send_request(
-                route="multimodal_doc_intel_processing",
-                files=files,
-                force_json_content_type=False,
-            )
-        return request_outputs
+#             request_outputs = send_request(
+#                 route="multimodal_doc_intel_processing",
+#                 files=files,
+#                 force_json_content_type=False,
+#             )
+#         return request_outputs
 
-    # Input components
-    di_proc_instructions = gr.Markdown(
-        (
-            "This example uses showcases a custom-built Azure Document Intelligence Processor for converting raw API "
-            "responses into more usable and useful formats "
-            "([Code Link](https://github.com/Azure/multimodal-ai-llm-processing-accelerator/blob/main/function_app/bp_multimodal_doc_intel_processing.py))."
-            "\n\nThis processor is fully configurable and can be used to completely customize the processing, formatting, "
-            "and chunking of files processed with Azure Document Intelligence. Some features include:\n"
-            "* Automatic extraction of rich content from images and PDF/documents, including tables, figures and more.\n"
-            "* Conversion and formatting of text content, images for each page and figure, and pandas dataframes for tables.\n"
-            "* Automatic correction of image rotation when extracting page and figure images (if not corrected, this can completely destroy LLM extraction accuracy)\n"
-            "* Custom formatting of all content outputs, allowing for completely dynamic formatting and inclusion/exclusion of content.\n"
-            "* Chunking of content into smaller parts (e.g. into chunks of X pages) which can then be processed in parallel (e.g. the Map Reduce pattern).\n"
-            "* Automatic conversion of the content to the OpenAI message format, ready for processing with an LLM.\n"
-            "\n\nTo try it out, upload a document or select one of the demo documents from the dropdown below. "
-            "While the demo below is a very simple example of what is possible with the component, a more detailed deep dive can be found in the "
-            "[Code walkthrough notebook](https://github.com/Azure/multimodal-ai-llm-processing-accelerator/blob/main/notebooks/Document%20Intelligence%20Processor%20Walkthrough.ipynb)."
-        ),
-        show_label=False,
-    )
-    with gr.Row():
-        di_proc_file_upload = gr.File(
-            label="Upload File. To upload a different file, Hit the 'X' button to the top right of this element ->",
-            file_count="single",
-            type="filepath",
-            value=lambda: DEMO_DOC_INTEL_PROCESSING_FILE_TUPLES[0][1],
-        )
-        di_proc_input_thumbs = render_visual_media_input(
-            DEMO_DOC_INTEL_PROCESSING_FILE_TUPLES[0][1]
-        )
-    # Examples
-    di_proc_example_dropdown = gr.Dropdown(
-        label="Select a demo PDF or image file",
-        choices=DEMO_DOC_INTEL_PROCESSING_FILE_TUPLES,
-        allow_custom_value=True,
-    )
-    with gr.Row():
-        di_proc_output_page_checkbox = gr.Checkbox(
-            label="Include page images after each page's content",
-            value=True,
-            info="If checked, the output will include the page image after each page's text content.",
-        )
-        di_proc_output_figures_inline_checkbox = gr.Checkbox(
-            label="Extract & crop inline figures",
-            value=True,
-            info="If checked, any figures that were identified within the document will be cropped from the page image and inserted into the outputs as an image file.",
-        )
-        di_proc_pages_per_chunk_number = gr.Number(
-            label="Pages per chunk of content",
-            value=3,
-            minimum=1,
-            maximum=1000,
-            precision=0,
-            info="The demo automatically splits the output content into chunks. This sets the number of pages of content per chunk.",
-        )
-    di_proc_process_btn = gr.Button("Process File", variant="primary")
-    # Output components
-    with gr.Column() as di_proc_output_row:
-        di_proc_output_label = gr.Label(value="API Response", show_label=False)
-        with gr.Row():
-            di_proc_status_code = gr.Textbox(
-                label="Response Status Code", interactive=False
-            )
-            di_proc_time_taken = gr.Textbox(label="Time Taken", interactive=False)
-        di_proc_output_md = gr.Markdown(
-            label="Processed Markdown Content", line_breaks=True
-        )
-    # Actions
-    di_proc_example_dropdown.change(
-        fn=echo_input,
-        inputs=[di_proc_example_dropdown],
-        outputs=[di_proc_file_upload],
-    )
-    di_proc_file_upload.change(
-        fn=render_visual_media_input,
-        inputs=[di_proc_file_upload],
-        outputs=[di_proc_input_thumbs],
-    )
-    di_proc_process_btn.click(
-        fn=di_proc_process_upload,
-        inputs=[
-            di_proc_file_upload,
-            di_proc_output_page_checkbox,
-            di_proc_output_figures_inline_checkbox,
-            di_proc_pages_per_chunk_number,
-        ],
-        outputs=[
-            di_proc_status_code,
-            di_proc_time_taken,
-            di_proc_output_md,
-        ],
-    )
+#     # Input components
+#     di_proc_instructions = gr.Markdown(
+#         (
+#             "This example uses showcases a custom-built Azure Document Intelligence Processor for converting raw API "
+#             "responses into more usable and useful formats "
+#             "([Code Link](https://github.com/Azure/multimodal-ai-llm-processing-accelerator/blob/main/function_app/bp_multimodal_doc_intel_processing.py))."
+#             "\n\nThis processor is fully configurable and can be used to completely customize the processing, formatting, "
+#             "and chunking of files processed with Azure Document Intelligence. Some features include:\n"
+#             "* Automatic extraction of rich content from images and PDF/documents, including tables, figures and more.\n"
+#             "* Conversion and formatting of text content, images for each page and figure, and pandas dataframes for tables.\n"
+#             "* Automatic correction of image rotation when extracting page and figure images (if not corrected, this can completely destroy LLM extraction accuracy)\n"
+#             "* Custom formatting of all content outputs, allowing for completely dynamic formatting and inclusion/exclusion of content.\n"
+#             "* Chunking of content into smaller parts (e.g. into chunks of X pages) which can then be processed in parallel (e.g. the Map Reduce pattern).\n"
+#             "* Automatic conversion of the content to the OpenAI message format, ready for processing with an LLM.\n"
+#             "\n\nTo try it out, upload a document or select one of the demo documents from the dropdown below. "
+#             "While the demo below is a very simple example of what is possible with the component, a more detailed deep dive can be found in the "
+#             "[Code walkthrough notebook](https://github.com/Azure/multimodal-ai-llm-processing-accelerator/blob/main/notebooks/Document%20Intelligence%20Processor%20Walkthrough.ipynb)."
+#         ),
+#         show_label=False,
+#     )
+#     with gr.Row():
+#         di_proc_file_upload = gr.File(
+#             label="Upload File. To upload a different file, Hit the 'X' button to the top right of this element ->",
+#             file_count="single",
+#             type="filepath",
+#             value=lambda: DEMO_DOC_INTEL_PROCESSING_FILE_TUPLES[0][1],
+#         )
+#         di_proc_input_thumbs = render_visual_media_input(
+#             DEMO_DOC_INTEL_PROCESSING_FILE_TUPLES[0][1]
+#         )
+#     # Examples
+#     di_proc_example_dropdown = gr.Dropdown(
+#         label="Select a demo PDF or image file",
+#         choices=DEMO_DOC_INTEL_PROCESSING_FILE_TUPLES,
+#         allow_custom_value=True,
+#     )
+#     with gr.Row():
+#         di_proc_output_page_checkbox = gr.Checkbox(
+#             label="Include page images after each page's content",
+#             value=True,
+#             info="If checked, the output will include the page image after each page's text content.",
+#         )
+#         di_proc_output_figures_inline_checkbox = gr.Checkbox(
+#             label="Extract & crop inline figures",
+#             value=True,
+#             info="If checked, any figures that were identified within the document will be cropped from the page image and inserted into the outputs as an image file.",
+#         )
+#         di_proc_pages_per_chunk_number = gr.Number(
+#             label="Pages per chunk of content",
+#             value=3,
+#             minimum=1,
+#             maximum=1000,
+#             precision=0,
+#             info="The demo automatically splits the output content into chunks. This sets the number of pages of content per chunk.",
+#         )
+#     di_proc_process_btn = gr.Button("Process File", variant="primary")
+#     # Output components
+#     with gr.Column() as di_proc_output_row:
+#         di_proc_output_label = gr.Label(value="API Response", show_label=False)
+#         with gr.Row():
+#             di_proc_status_code = gr.Textbox(
+#                 label="Response Status Code", interactive=False
+#             )
+#             di_proc_time_taken = gr.Textbox(label="Time Taken", interactive=False)
+#         di_proc_output_md = gr.Markdown(
+#             label="Processed Markdown Content", line_breaks=True
+#         )
+#     # Actions
+#     di_proc_example_dropdown.change(
+#         fn=echo_input,
+#         inputs=[di_proc_example_dropdown],
+#         outputs=[di_proc_file_upload],
+#     )
+#     di_proc_file_upload.change(
+#         fn=render_visual_media_input,
+#         inputs=[di_proc_file_upload],
+#         outputs=[di_proc_input_thumbs],
+#     )
+#     di_proc_process_btn.click(
+#         fn=di_proc_process_upload,
+#         inputs=[
+#             di_proc_file_upload,
+#             di_proc_output_page_checkbox,
+#             di_proc_output_figures_inline_checkbox,
+#             di_proc_pages_per_chunk_number,
+#         ],
+#         outputs=[
+#             di_proc_status_code,
+#             di_proc_time_taken,
+#             di_proc_output_md,
+#         ],
+#     )
 
 ### Document Translation Example ###
 with gr.Blocks(analytics_enabled=False) as doc_translate_block:
@@ -2371,97 +2371,97 @@ def audio_transcription_tab(blob_service_client, input_container="audio-in", out
                 outputs=download_file
             )
 
-## New video processing block
-def video_processing_tab(blob_service_client, input_container="video-in", output_container="video-processed-out"):
+# ## New video processing block
+# def video_processing_tab(blob_service_client, input_container="video-in", output_container="video-processed-out"):
     
-    def upload_video_to_blob(file):
-        try:
-            file_path = file.name if hasattr(file, "name") else file
-            blob_name = os.path.basename(file_path)
-            container_client = blob_service_client.get_container_client(input_container)
-            with open(file_path, "rb") as data:
-                container_client.upload_blob(blob_name, data, overwrite=True)
-            return f"✅ Uploaded `{blob_name}` to `{input_container}`."
-        except Exception as e:
-            return f"❌ Upload failed: {str(e)}"
+#     def upload_video_to_blob(file):
+#         try:
+#             file_path = file.name if hasattr(file, "name") else file
+#             blob_name = os.path.basename(file_path)
+#             container_client = blob_service_client.get_container_client(input_container)
+#             with open(file_path, "rb") as data:
+#                 container_client.upload_blob(blob_name, data, overwrite=True)
+#             return f"✅ Uploaded `{blob_name}` to `{input_container}`."
+#         except Exception as e:
+#             return f"❌ Upload failed: {str(e)}"
 
-    def list_video_outputs():
-        try:
-            container_client = blob_service_client.get_container_client(output_container)
-            return [blob.name for blob in container_client.list_blobs()]
-        except Exception as e:
-            return [f"❌ Failed to list outputs: {str(e)}"]
+#     def list_video_outputs():
+#         try:
+#             container_client = blob_service_client.get_container_client(output_container)
+#             return [blob.name for blob in container_client.list_blobs()]
+#         except Exception as e:
+#             return [f"❌ Failed to list outputs: {str(e)}"]
 
-    def update_video_dropdown():
-        return gr.update(choices=list_video_outputs())
+#     def update_video_dropdown():
+#         return gr.update(choices=list_video_outputs())
 
-    def show_video_output(name):
-        try:
-            container_client = blob_service_client.get_container_client(output_container)
-            blob = container_client.download_blob(name)
-            return blob.readall().decode("utf-8")
-        except Exception as e:
-            return f"❌ Failed to read output: {str(e)}"
+#     def show_video_output(name):
+#         try:
+#             container_client = blob_service_client.get_container_client(output_container)
+#             blob = container_client.download_blob(name)
+#             return blob.readall().decode("utf-8")
+#         except Exception as e:
+#             return f"❌ Failed to read output: {str(e)}"
 
-    def download_video_output(name):
-        try:
-            container_client = blob_service_client.get_container_client(output_container)
-            blob = container_client.download_blob(name)
-            content = blob.readall()
+#     def download_video_output(name):
+#         try:
+#             container_client = blob_service_client.get_container_client(output_container)
+#             blob = container_client.download_blob(name)
+#             content = blob.readall()
 
-            json_data = json.loads(content)
-            pretty = json.dumps(json_data, indent=2)
+#             json_data = json.loads(content)
+#             pretty = json.dumps(json_data, indent=2)
 
-            temp_path = os.path.join(tempfile.gettempdir(), name)
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(pretty)
+#             temp_path = os.path.join(tempfile.gettempdir(), name)
+#             with open(temp_path, "w", encoding="utf-8") as f:
+#                 f.write(pretty)
 
-            return temp_path
-        except Exception as e:
-            logging.warning(f"Failed to prep video download: {e}")
-            return None
+#             return temp_path
+#         except Exception as e:
+#             logging.warning(f"Failed to prep video download: {e}")
+#             return None
 
-    with gr.Row():
-        with gr.Column():
-            video_input = gr.File(
-                label="Upload video file",
-                type="filepath",
-                file_types=["video"]
-            )
-            video_upload_btn = gr.Button("Upload")
-            video_upload_status = gr.Textbox(label="Status", interactive=False)
+#     with gr.Row():
+#         with gr.Column():
+#             video_input = gr.File(
+#                 label="Upload video file",
+#                 type="filepath",
+#                 file_types=["video"]
+#             )
+#             video_upload_btn = gr.Button("Upload")
+#             video_upload_status = gr.Textbox(label="Status", interactive=False)
 
-            video_upload_btn.click(
-                fn=upload_video_to_blob,
-                inputs=video_input,
-                outputs=video_upload_status
-            )
+#             video_upload_btn.click(
+#                 fn=upload_video_to_blob,
+#                 inputs=video_input,
+#                 outputs=video_upload_status
+#             )
 
-        with gr.Column():
-            video_refresh_btn = gr.Button("Refresh Processed Outputs")
-            video_dropdown = gr.Dropdown(choices=[], label="Available Outputs")
-            video_output_display = gr.Textbox(label="Output Content", lines=10)
+#         with gr.Column():
+#             video_refresh_btn = gr.Button("Refresh Processed Outputs")
+#             video_dropdown = gr.Dropdown(choices=[], label="Available Outputs")
+#             video_output_display = gr.Textbox(label="Output Content", lines=10)
 
-            video_download_btn = gr.Button("Download JSON")
-            video_download_file = gr.File(label="Your JSON Download", interactive=False)
+#             video_download_btn = gr.Button("Download JSON")
+#             video_download_file = gr.File(label="Your JSON Download", interactive=False)
 
-            video_refresh_btn.click(
-                fn=update_video_dropdown,
-                inputs=[],
-                outputs=video_dropdown
-            )
+#             video_refresh_btn.click(
+#                 fn=update_video_dropdown,
+#                 inputs=[],
+#                 outputs=video_dropdown
+#             )
 
-            video_dropdown.change(
-                fn=show_video_output,
-                inputs=video_dropdown,
-                outputs=video_output_display
-            )
+#             video_dropdown.change(
+#                 fn=show_video_output,
+#                 inputs=video_dropdown,
+#                 outputs=video_output_display
+#             )
 
-            video_download_btn.click(
-                fn=download_video_output,
-                inputs=video_dropdown,
-                outputs=video_download_file
-            )
+#             video_download_btn.click(
+#                 fn=download_video_output,
+#                 inputs=video_dropdown,
+#                 outputs=video_download_file
+#             )
 
 
 version="0.13"
@@ -2479,7 +2479,7 @@ version="0.13"
 ##  v0.3 - Updated with markdown for PII Redaction
 
 with gr.Blocks(
-    title=f"Briefcase the AI Toolbox {version}",
+    title=f"Briefcase: the AI Toolbox {version}",
     theme=Base(),
     css="footer {visibility: hidden}",
     analytics_enabled=False,
@@ -2497,8 +2497,6 @@ with gr.Blocks(
 #        form_extraction_with_confidence_block.render()
     with gr.Tab("Audio Processing (HTTP)"):
         call_center_audio_processing_block.render()
-#    with gr.Tab("Multimodal Document Intelligence Processing (HTTP)"):
-#        di_proc_block.render()
     if IS_COSMOSDB_AVAILABLE:
         # Only render the CosmosDB tab if CosmosDB database info is available
         with gr.Tab("Form Extraction (Blob -> CosmosDB)"):
@@ -2513,8 +2511,7 @@ with gr.Blocks(
         doc_translate_block.render()
     with gr.Tab("Audio Batch Processing (HTTP)"):
         audio_transcription_tab(blob_service_client)
-#    with gr.Tab("Video Processing"):
-#        video_processing_tab(blob_service_client)
+
 
 
 if __name__ == "__main__":

@@ -2341,6 +2341,7 @@ module audiomonoWebAppCosmosDbRoleAssignment 'cosmosdb-account-role-assignment.b
 }
 // Add Language endpoint to outputs
 output FunctionAppUrl string = functionApp.properties.defaultHostName
+output functionAppPrincipalId string = functionApp.identity.principalId
 output webAppUrl string = deployWebApp ? webApp.properties.defaultHostName : ''
 output storageAccountEndpolint string = storageAccount.properties.primaryEndpoints.blob
 output storageAccountName string = storageAccount.name
