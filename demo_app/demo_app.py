@@ -7,6 +7,7 @@ import time
 from collections import defaultdict
 from io import BytesIO
 from typing import Optional, Union
+import uuid
 
 import fitz
 import gradio as gr
@@ -28,6 +29,7 @@ from moviepy.video.io.VideoFileClip import VideoFileClip
 from moviepy.audio.io.AudioFileClip import AudioFileClip
 from azure.storage.blob import BlobServiceClient
 import tempfile
+from datetime import datetime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,7 +61,7 @@ IS_COSMOSDB_AVAILABLE = COSMOSDB_ACCOUNT_ENDPOINT and COSMOSDB_DATABASE_NAME
 
 credential = DefaultAzureCredential()
 
-blob_service_client = BlobServiceClient(account_url=STORAGE_ACCOUNT_ENDPOINT, credential=credential)
+# blob_service_client = BlobServiceClient(account_url=STORAGE_ACCOUNT_ENDPOINT, credential=credential)
 
 if not IS_COSMOSDB_AVAILABLE:
     logging.warning(
@@ -2213,81 +2215,63 @@ with gr.Blocks(analytics_enabled=False) as di_llm_ext_names_block:
 #     )
 
 ### Augmented Document Translation Example ###
-with gr.Blocks(analytics_enabled=False) as doc_translate_aug_block:
-    def translate_doc_aug_request(file: Optional[str]):
-        translation_md = ""
-        entities_text = ""
-        summary_text = ""
-        if file is None:
-            gr.Warning(
-                "Please select or upload a PDF file to translate."
-            )
-            return ("", "", translation_md, entities_text, summary_text)
-        mime_type = mimetypes.guess_type(file)[0]
-        with open(file, "rb") as f:
-            data = f.read()
-            headers = {"Content-Type": mime_type}
-            status_code, time_taken, response = send_request(
-                route="translate_document_augmented",
-                data=data,
-                headers=headers,
-                force_json_content_type=True,
-            )
-        if isinstance(response, dict):
-            pages = response.get("pages", []) or []
-            lines = []
-            for p in pages:
-                page_num = p.get("page")
-                text = p.get("translation", "")
-                lines.append(f"### Page {page_num}\n{text}")
-            translation_md = "\n\n".join(lines)
-            if response.get("entities"):
-                entities_text = ", ".join(response["entities"])
-            summary_text = response.get("summary", "")
-        return status_code, time_taken, translation_md, entities_text, summary_text
 
-    doc_translate_aug_instructions = gr.Markdown(
-        "Upload a PDF document. Each page will be translated to English, key entities extracted and the document summarised."
-    )
-    with gr.Row():
-        with gr.Column():
-            doc_translate_aug_file_upload = gr.File(
-                label="Upload PDF", file_count="single", type="filepath"
-            )
-            doc_translate_aug_input_thumbs = gr.Gallery(
-                label="File Preview", object_fit="contain", visible=True
-            )
-        with gr.Column():
-            with gr.Row():
-                doc_translate_aug_status_code = gr.Textbox(
-                    label="Response Status Code", interactive=False
-                )
-                doc_translate_aug_time_taken = gr.Textbox(
-                    label="Time Taken", interactive=False
-                )
-            doc_translate_aug_translation = gr.Markdown(
-                label="Page Translations", line_breaks=True
-            )
-            doc_translate_aug_entities = gr.Textbox(label="Entities")
-            doc_translate_aug_summary = gr.Textbox(label="Summary", lines=3)
+def run_doc_translation(input_path):
+    url = f"{FUNCTION_HOSTNAME}/translate_document_augmented?code={FUNCTION_KEY}"
+    headers = {"Content-Type": "application/pdf"}
 
-    doc_translate_aug_file_upload.change(
-        fn=render_visual_media_input,
-        inputs=[doc_translate_aug_file_upload],
-        outputs=[doc_translate_aug_input_thumbs],
+    with open(input_path, "rb") as f:
+        pdf_bytes = f.read()
+
+    try:
+        resp = requests.post(url, headers=headers, data=pdf_bytes, timeout=120)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        return {"success": False, "error_text": str(e)}
+
+def translate_pdf(pdf_file):
+    if not pdf_file:
+        return "Please upload a PDF.", "", ""
+
+    file_id = str(uuid.uuid4())
+    filename = os.path.basename(pdf_file)
+    temp_path = os.path.join(tempfile.gettempdir(), f"{file_id}_{filename}")
+    with open(pdf_file, "rb") as src, open(temp_path, "wb") as dst:
+        dst.write(src.read())
+
+    result = run_doc_translation(temp_path)
+    if not result.get("success", False):
+        return f"Error: {result.get('error_text', 'unknown')}", "", ""
+
+    summary = result.get("summary", "[no summary returned]")
+    entities = result.get("entities", [])
+    entities_str = ", ".join(entities) if entities else "[no entities found]"
+
+    return "Translation complete.", summary, entities_str
+
+with gr.Blocks() as doc_translate_aug_block:
+    gr.Markdown("# 📄 Doc Translate")
+
+    gr.Markdown("""
+Upload your PDF, then click “Translate”.  
+You’ll see the summary and any recognized entities.
+    """)
+
+    pdf_file   = gr.File(label="Upload PDF file", file_types=[".pdf"], type="filepath")
+    run_button = gr.Button("Translate")
+
+    status_box   = gr.Textbox(label="Status", interactive=False)
+    summary_box  = gr.Textbox(label="Summary", interactive=False, lines=5)
+    entities_box = gr.Textbox(label="Entities", interactive=False, lines=2)
+
+    run_button.click(
+        fn=translate_pdf,
+        inputs=[pdf_file],
+        outputs=[status_box, summary_box, entities_box]
     )
-    doc_translate_aug_file_upload.change(
-        fn=translate_doc_aug_request,
-        inputs=[doc_translate_aug_file_upload],
-        outputs=[
-            doc_translate_aug_status_code,
-            doc_translate_aug_time_taken,
-            doc_translate_aug_translation,
-            doc_translate_aug_entities,
-            doc_translate_aug_summary,
-        ],
-    )
-    
+
+     
 # Gradio tab for audio upload and transcript viewing
 
 def audio_transcription_tab(blob_service_client, input_container="audio-in", output_container="audio-transcript-out"):
