@@ -42,7 +42,7 @@ load_dotenv()
 # Note: This assumes the function is being run prior to launching the web app.
 FUNCTION_HOSTNAME = os.getenv("FUNCTION_HOSTNAME", "http://localhost:7071/")
 FUNCTION_KEY = os.getenv("FUNCTION_KEY", "")
-FUNCTION_ENDPOINT = os.path.join(FUNCTION_HOSTNAME, "api")
+FUNCTION_ENDPOINT = FUNCTION_HOSTNAME.rstrip("/") + "/api"
 
 # Create clients for Azure services. If connecting to Azure resources, ensure
 # the current Azure identity has the necessary permissions to access the
