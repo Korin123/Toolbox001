@@ -44,6 +44,8 @@ param blobContainerNames array = [
   'audio-transcript-out'
   'video-in'
   'video-processed-out'
+  'translate-in'
+  'translate-out'
 ]
 
 @description('The name of the Azure Container Registry')
@@ -1423,6 +1425,8 @@ module languageRoleAssignments 'multiple-ai-services-role-assignment.bicep' = if
 }
 
 // Azure Translator
+
+// Azure Translator
 resource translator 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (deployTranslatorResource) {
   name: translatorTokenName
   location: translatorLocation
@@ -1432,11 +1436,9 @@ resource translator 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (depl
     customSubDomainName: translatorTokenName
     disableLocalAuth: true
     networkAcls: {
-      // Set defaultAction to Allow when public access is enabled and no IP ranges are specified
       defaultAction: (backendServicesAllowPublicAccess && empty(backendServicesAllowedExternalIpsOrIpRanges))
         ? 'Allow'
         : 'Deny'
-      // Only include VNET rules when using service endpoints
       virtualNetworkRules: backendServicesNetworkingType == 'ServiceEndpoint'
         ? [
             {
@@ -1445,7 +1447,6 @@ resource translator 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (depl
             }
           ]
         : []
-      // Only add IP rules if public access is enabled and specific IPs are provided
       ipRules: (backendServicesAllowPublicAccess && !empty(backendServicesAllowedExternalIpsOrIpRanges))
         ? map(backendServicesAllowedExternalIpsOrIpRanges, ip => {
             value: ip
@@ -1458,6 +1459,18 @@ resource translator 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (depl
   }
 }
 
+// Role assignment for Function App’s managed identity
+module translatorRoleAssignments 'multiple-ai-services-role-assignment.bicep' = if (deployTranslatorResource) {
+  name: guid(translator.id, additionalRoleAssignmentIdsStr, 'AiServicesRoleAssignments')
+  params: {
+    aiServiceName:     translator.name
+    principalIds:      roleAssignmentIdentityIds       // now includes the Function App MI
+    roleDefinitionIds: [ roleDefinitions.cognitiveServicesUser ]
+  }
+}
+
+
+// Private Endpoint for Translator
 resource translatorPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = if (deployTranslatorResource && backendServicesNetworkingType == 'PrivateEndpoint') {
   name: '${translator.name}-private-endpoint'
   location: location
@@ -1491,14 +1504,8 @@ resource translatorPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-0
   }
 }
 
-module translatorRoleAssignments 'multiple-ai-services-role-assignment.bicep' = if (deployTranslatorResource) {
-  name: guid(translator.id, additionalRoleAssignmentIdsStr, 'AiServicesRoleAssignments')
-  params: {
-    aiServiceName: translator.name
-    principalIds: roleAssignmentIdentityIds
-    roleDefinitionIds: [roleDefinitions.cognitiveServicesUser]
-  }
-}
+
+
 
 // Azure OpenAI
 resource azureopenai 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (deployOpenAIResource) {

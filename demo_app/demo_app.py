@@ -2217,7 +2217,7 @@ with gr.Blocks(analytics_enabled=False) as di_llm_ext_names_block:
 ### Augmented Document Translation Example ###
 
 def run_doc_translation(input_path):
-    url = f"{FUNCTION_HOSTNAME}/translate_document_augmented?code={FUNCTION_KEY}"
+    url = f"{FUNCTION_ENDPOINT}/translate_document_augmented?code={FUNCTION_KEY}"
     headers = {"Content-Type": "application/pdf"}
 
     with open(input_path, "rb") as f:
