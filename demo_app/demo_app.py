@@ -2459,8 +2459,9 @@ def audio_transcription_tab(blob_service_client, input_container="audio-in", out
 #             )
 
 
-version="0.13"
+version="0.14"
 ## Version Control ###
+## v0.14 - Updated with new doc intelligence extraction and LLM name extraction example
 ## v0.13 - Updated with translation tab
 ## v0.12 - Updated with video processing block
 ##  v0.11 - Updated with Audio Batch Processing and Blob Storage with downnload
@@ -2475,7 +2476,7 @@ version="0.13"
 
 with gr.Blocks(
     title=f"Briefcase: the AI Toolbox {version}",
-    theme=Base(),
+    theme=gr.themes.Soft(),
     css="footer {visibility: hidden}",
     analytics_enabled=False,
 ) as demo:
