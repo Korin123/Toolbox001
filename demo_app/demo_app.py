@@ -2027,23 +2027,21 @@ def run_doc_translation(input_path):
     except Exception as e:
         return {"success": False, "error_text": str(e)}
 
-def translate_pdf(pdf_file):
-    if not pdf_file:
+def translate_pdf(pdf_filepath): # Renamed for clarity
+    if not pdf_filepath:
         return "Please upload a PDF.", "", ""
 
-    file_id = str(uuid.uuid4())
-    filename = os.path.basename(pdf_file)
-    temp_path = os.path.join(tempfile.gettempdir(), f"{file_id}_{filename}")
-    with open(pdf_file, "rb") as src, open(temp_path, "wb") as dst:
-        dst.write(src.read())
+            # Use the filepath provided by Gradio directly
+    result = run_doc_translation(pdf_filepath)
 
-    result = run_doc_translation(temp_path)
     if not result.get("success", False):
         return f"Error: {result.get('error_text', 'unknown')}", "", ""
 
     summary = result.get("summary", "[no summary returned]")
     entities = result.get("entities", [])
     entities_str = ", ".join(entities) if entities else "[no entities found]"
+
+    return "Translation complete.", summary, entities_str
 
     return "Translation complete.", summary, entities_str
 
