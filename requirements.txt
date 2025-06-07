@@ -12,7 +12,7 @@ moviepy==2.2.0
 requests>=2.32.0
 
 # Demo app only
-gradio==4.43.0
+gradio==4.44.1
 azure-cosmos>=4.7.0
 
 # Function app only

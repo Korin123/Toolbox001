@@ -2163,6 +2163,124 @@ def audio_transcription_tab(blob_service_client, input_container="audio-in", out
                 outputs=download_file
             )
 
+## Custom Doc Extraction + LLM Name Extraction Example ###
+
+# In demo_app.py (place this with your other Gradio backend functions)
+
+def call_custom_extraction_function(file, selected_option, progress=gr.Progress(track_tqdm=True)):
+    """
+    Calls the new custom extraction Azure Function with a file and a selected option.
+    Includes progress updates for the UI.
+    """
+    if file is None:
+        gr.Warning("Please upload a file first.")
+        return "", "", None, None
+
+    progress(0, desc="Preparing request...")
+    
+    # The payload is a simple JSON with the selected option key
+    payload = {"selected_option": selected_option}
+
+    mime_type = mimetypes.guess_type(file.name)[0]
+    with open(file.name, "rb") as f:
+        # We must send a multipart request containing the JSON payload and the file
+        files = {
+            "json": (None, json.dumps(payload), "application/json"),
+            "file": (os.path.basename(file.name), f, mime_type),
+        }
+        
+        progress(0.2, desc="Sending document to Azure for analysis...")
+        status_code, time_taken, response = send_request(
+            route="intelligent_extraction", # Route for the new Azure function
+            files=files,
+            force_json_content_type=True,
+            timeout=300 # 5 minute timeout
+        )
+
+    progress(0.9, desc="Processing result...")
+
+    if status_code == 200 and response.get("success", False):
+        # UPDATED: Now correctly looks for the 'llm_result' key from the backend
+        llm_result_text = response.get("llm_result", "No result returned from LLM.")
+        return status_code, time_taken, llm_result_text, response
+    else:
+        error_message = response.get("error_text", "An unknown error occurred.")
+        gr.Error(f"Processing failed: {error_message}")
+        return status_code, time_taken, f"An error occurred: {error_message}", response
+
+
+# In demo_app.py
+
+with gr.Blocks(analytics_enabled=False) as custom_extraction_block:
+    gr.Markdown(
+        "## Custom Document Analysis\n"
+        "Upload a document and select a processing instruction. The document will be sent to an AI pipeline for analysis based on your selection."
+    )
+
+    with gr.Row():
+        # --- Left Column (Inputs) ---
+        with gr.Column(scale=1):
+            custom_extraction_file_upload = gr.File(
+                label="Upload PDF or Image File",
+                file_count="single",
+                type="filepath",
+            )
+            custom_extraction_option_dropdown = gr.Dropdown(
+                label="Select Processing Instruction",
+                choices=[
+                    ("Pick an instruction…", ""),                       # your “placeholder” choice
+                    ("Extract Key Details (People, Places, & Vehicles)", "extract_details"),
+                    ("Generate a Summary",                               "summarise"),
+                    ("Identify Safety Hazards",                          "find_risks"),
+                ],
+                value="",            # starts on that first “Pick an instruction” entry
+                allow_custom_value=False,
+                interactive=True,
+            )
+
+
+
+            # UPDATED: Button text changed to UK English
+            custom_extraction_process_btn = gr.Button("Analyse Document", variant="primary")
+
+        # --- Right Column (Preview) ---
+        with gr.Column(scale=1):
+            custom_extraction_input_thumbs = gr.Gallery(
+                label="File Preview", object_fit="contain", visible=True, height="auto"
+            )
+
+    # --- Output Section ---
+    with gr.Column():
+        gr.Markdown("---")
+        with gr.Row():
+            custom_extraction_status_code = gr.Textbox(label="Response Status Code", interactive=False)
+            custom_extraction_time_taken = gr.Textbox(label="Time Taken", interactive=False)
+        
+        custom_extraction_output_md = gr.Markdown(label="LLM Response")
+        
+        with gr.Accordion("Raw API Response", open=False):
+            custom_extraction_output_json = gr.JSON()
+
+    # --- Actions ---
+    custom_extraction_file_upload.change(
+        fn=render_visual_media_input, # This function already exists in your app
+        inputs=[custom_extraction_file_upload],
+        outputs=[custom_extraction_input_thumbs],
+    )
+    # UPDATED: The .click event now tracks progress
+    custom_extraction_process_btn.click(
+        fn=call_custom_extraction_function,
+        inputs=[
+            custom_extraction_file_upload,
+            custom_extraction_option_dropdown
+        ],
+        outputs=[
+            custom_extraction_status_code,
+            custom_extraction_time_taken,
+            custom_extraction_output_md,
+            custom_extraction_output_json,
+        ],
+    )
 
 
 
@@ -2171,54 +2289,79 @@ version="0.14"
 ## v0.14 - Updated with new doc intelligence extraction and LLM name extraction example
 ## v0.13 - Updated with translation tab
 ## v0.12 - Updated with video processing block
-##  v0.11 - Updated with Audio Batch Processing and Blob Storage with downnload
-##  v0.10 - Updated with Audio in and out blob storage
-##  v0.9 - Updated with version and CSS
-##  v0.8 - Updated with video/audio processing and markdown for Doc Intelligence
-##  v0.7 - Audio Fixes, and updated with markdown for Doc Intelligence
-##  v0.6 - Updated with markdown for Audio
-##  v0.5 - Updated with markdown for Document Intelligenc
-##  v0.4 - Updated with markdown for Form Extraction
-##  v0.3 - Updated with markdown for PII Redaction
+## v0.11 - Updated with Audio Batch Processing and Blob Storage with downnload
+## v0.10 - Updated with Audio in and out blob storage
+## v0.9 - Updated with version and CSS
+## v0.8 - Updated with video/audio processing and markdown for Doc Intelligence
+## v0.7 - Audio Fixes, and updated with markdown for Doc Intelligence
+## v0.6 - Updated with markdown for Audio
+## v0.5 - Updated with markdown for Document Intelligenc
+## v0.4 - Updated with markdown for Form Extraction
+## v0.3 - Updated with markdown for PII Redaction
 
+# In demo_app.py
+
+# --- Define your custom theme first ---
+# CORRECTED code
+modern_theme = gr.themes.Soft(
+    primary_hue=gr.themes.colors.blue,
+    neutral_hue=gr.themes.colors.slate,
+    spacing_size=gr.themes.sizes.spacing_md,
+    radius_size=gr.themes.sizes.radius_md,
+).set(
+    body_background_fill_dark="#0F172A",
+    block_background_fill_dark="#1E293B",
+    block_border_width_dark="1px",
+    block_border_color_dark="#334155",
+)
+
+
+
+# --- This is the main application layout block ---
 with gr.Blocks(
     title=f"Briefcase: the AI Toolbox {version}",
-    theme=gr.themes.Soft(mode='dark'), # Using the dark theme we discussed
+    theme=modern_theme,  # Apply the custom modern theme
     css="footer {visibility: hidden}",
     analytics_enabled=False,
 ) as demo:
     gr.Markdown(
-        f"## Briefcase: The AI Toolbox {version}\n\n"
-        "This demo showcases processing pipelines..."
+    f"""
+    <div style="display:flex;align-items:center;justify-content:center;">
+        <img src="file=assets/NCA_logo.png" style="height:50px;margin-right:15px;" />
+        <h1>Briefcase: The AI Toolbox {version}</h1>
+    </div>
+    """,
     )
 
-#    with gr.Tab("Azure Content Understanding Demos (HTTP)"):
-#        simple_cu_examples_block.render()
-#    with gr.Tab("Form Extraction with Confidence Scores (HTTP)"):
-#        form_extraction_with_confidence_block.render()
-    with gr.Tab("Audio Processing (HTTP)"):
-        call_center_audio_processing_block.render()
-    if IS_COSMOSDB_AVAILABLE:
-        # Only render the CosmosDB tab if CosmosDB database info is available
-        with gr.Tab("Form Extraction (Blob -> CosmosDB)"):
-            blob_form_extraction_to_cosmosdb_block.render()
-    with gr.Tab("Summarise Text (HTTP)"):
-        sum_text_block.render()
-    with gr.Tab("PII Redaction (HTTP)"):
-        pii_redaction_block.render()
-    with gr.Tab("Key Information Extraction, Doc Intelligence (HTTP)"):
-        di_llm_ext_names_block.render()
-    with gr.Tab("Augmented Document Translation (HTTP)"):
-        doc_translate_aug_block.render()
-    with gr.Tab("Audio Batch Processing (HTTP)"):
-        audio_transcription_tab(blob_service_client)
-
-
+    with gr.Tabs():
+        # --- Document Intelligence & Analysis Group ---
+        with gr.Tab("✨ Intelligent Extraction"):
+            custom_extraction_block.render()
+        with gr.Tab("📄 Document Translation & Analysis"):
+            doc_translate_aug_block.render()
+           
+        with gr.Tab("🔍 Key Information Extraction"):
+            di_llm_ext_names_block.render()
+       
+        if IS_COSMOSDB_AVAILABLE:
+            with gr.Tab("📝 Form Extraction (Blob → CosmosDB)"):
+                blob_form_extraction_to_cosmosdb_block.render()
+        # --- Audio & Video Processing Group ---
+        with gr.Tab("🎤 Audio & Video Analysis"):
+            call_center_audio_processing_block.render()
+        with gr.Tab("🔊 Audio Batch Processing (Blob)"):
+            audio_transcription_tab(blob_service_client)
+        # --- Text Utilities Group ---
+        with gr.Tab("✍️ Text Summarization"):
+            sum_text_block.render()
+        with gr.Tab("🔏 PII Redaction"):
+            pii_redaction_block.render()
 
 if __name__ == "__main__":
     # Start server by running: `gradio demo_app.py`, then navigate to http://localhost:8000
     demo.queue(default_concurrency_limit=4)
     demo.launch(
+        allowed_paths=["assets"], # <-- ADD THIS LINE
         server_name="0.0.0.0",
         server_port=8000,
         auth_message=auth_message,
