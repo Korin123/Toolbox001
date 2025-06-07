@@ -64,8 +64,10 @@ if IS_TRANSLATOR_DEPLOYED and IS_LANGUAGE_DEPLOYED and IS_AOAI_DEPLOYED:
 if IS_DOC_INTEL_DEPLOYED and IS_AOAI_DEPLOYED:
     from bp_doc_intel_extract_city_names import bp_doc_intel_extract_city_names
     from bp_form_extraction_with_confidence import bp_form_extraction_with_confidence
+    from bp_intelligent_extraction import bp_intelligent_extraction
     app.register_blueprint(bp_doc_intel_extract_city_names)
     app.register_blueprint(bp_form_extraction_with_confidence)
+    app.register_blueprint(bp_intelligent_extraction)
 if IS_SPEECH_DEPLOYED and IS_AOAI_DEPLOYED:
     from bp_call_center_audio_analysis import bp_call_center_audio_analysis
     app.register_blueprint(bp_call_center_audio_analysis)
